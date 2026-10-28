@@ -26,11 +26,13 @@ button.sec{background:#fff;color:#07304f;margin-left:6px}
 .it.sel{outline:2px solid var(--accent)}
 .sw{width:56px;height:56px;border-radius:50%;display:grid;place-items:center;font-size:26px}
 .it button{margin:0;font-size:13px;padding:6px 12px;width:100%}
+#menuB{position:fixed;left:10px;top:calc(env(safe-area-inset-top,0px) + 42px);display:none;margin:0;padding:8px 14px;font-size:14px;border-radius:20px;background:var(--panel);color:#fff;z-index:5}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <div id="hud"><span id="sc">Очки: 0</span><span id="lv">❤❤❤</span><span id="bs">Рекорд: 0</span><span id="cn">🪙 0</span></div>
+<button id="menuB" aria-label="Меню">☰ Меню</button>
 <button id="mute" aria-label="Звук">🔊</button>
 <div id="ov"><div id="card">
 <h1>🐟🐱 Рыбо-котики</h1>
@@ -133,7 +135,17 @@ function upd(){
   $('sc').textContent='Очки: '+score;
   $('lv').textContent='❤'.repeat(Math.max(lives,0))+'🖤'.repeat(Math.max(3-lives,0));
 }
-function start(){initAudio();reset();state='play';$('ov').style.display='none';music(true)}
+function start(){initAudio();reset();state='play';$('ov').style.display='none';$('menuB').style.display='block';music(true)}
+function toMenu(){
+  if(state!=='play')return;
+  state='menu';music(false);J.on=false;J.id=null;J.x=J.y=0;$('menuB').style.display='none';
+  if(score>best){best=score;try{localStorage.setItem('fishcat_best',best)}catch(e){}}
+  $('bs').textContent='Рекорд: '+best;
+  $('msg').innerHTML='Забег завершён. Счёт: <b>'+score+'</b><br>Монеты: 🪙 +'+earned;
+  $('go').textContent='Играть';$('ov').style.display='flex';
+}
+$('menuB').onclick=toMenu;
+addEventListener('keydown',e=>{if(e.key==='Escape')toMenu()});
 $('go').onclick=start;
 addEventListener('keydown',e=>{
   keys[e.key.toLowerCase()]=true;
@@ -156,7 +168,7 @@ cv.addEventListener('pointerup',jEnd);cv.addEventListener('pointercancel',jEnd);
 cv.addEventListener('touchmove',e=>e.preventDefault(),{passive:false});
 
 function endGame(){
-  state='over';sfx('over');music(false);J.on=false;J.id=null;J.x=J.y=0;
+  state='over';sfx('over');music(false);J.on=false;J.id=null;J.x=J.y=0;$('menuB').style.display='none';
   if(score>best){best=score;try{localStorage.setItem('fishcat_best',best)}catch(e){}}
   $('bs').textContent='Рекорд: '+best;
   $('msg').innerHTML='Тебя поймали!<br>Твой счёт: <b>'+score+'</b><br>Монеты: 🪙 +'+earned+'<br>'+(score>=best&&score>0?' — новый рекорд! 🎉':'');
@@ -165,8 +177,9 @@ function endGame(){
 }
 
 function spawnDog(){
-  const fromL=Math.random()<.5,lvl=Math.min(score/150,1);
-  dogs.push({x:fromL?-U*3:W+U*3,y:U*2+Math.random()*(H-U*4),d:fromL?1:-1,sp:U*(3.2+lvl*3+Math.random()*1.5),ph:Math.random()*6,sz:U*(1.1+Math.random()*.5)});
+  const lvl=Math.min(score/150,1),e=Math.random()*4|0,m=U*3;
+  const x=e<2?(e?W+m:-m):Math.random()*W,y=e<2?Math.random()*H:(e===2?-m:H+m);
+  dogs.push({x,y,vx:0,vy:0,d:1,sp:U*(4.4+lvl*3+Math.random()*1.5),ph:Math.random()*6,sz:U*(1.1+Math.random()*.5),dash:0,dt:2+Math.random()*2,age:0,chase:3+Math.random()*2.5,leave:false});
 }
 function pop(x,y,col){for(let i=0;i<8;i++)parts.push({x,y,vx:(Math.random()-.5)*U*8,vy:(Math.random()-.5)*U*8,l:.5,c:col})}
 
@@ -191,25 +204,29 @@ function update(dt){
 
   // корм
   spawnF-=dt;
-  if(spawnF<=0){spawnF=.7+Math.random()*.5;foods.push({x:U+Math.random()*(W-U*2),y:-U,vy:U*(1.5+Math.random()*1.5),ph:Math.random()*6})}
+  if(spawnF<=0){spawnF=.3+Math.random()*.3;const e=Math.random()*4|0,m=U,x=e<2?(e?W+m:-m):Math.random()*W,y=e<2?Math.random()*H:(e===2?-m:H+m),tx=W*(.2+Math.random()*.6),ty=H*(.2+Math.random()*.6),a=Math.atan2(ty-y,tx-x),s=U*(1.5+Math.random()*1.5);foods.push({x,y,vx:Math.cos(a)*s,vy:Math.sin(a)*s,ph:Math.random()*6,age:0,heart:lives<3&&Math.random()<.025})}
   for(let i=foods.length-1;i>=0;i--){
-    const f=foods[i];f.y+=f.vy*dt;f.x+=Math.sin(t*2+f.ph)*U*.8*dt;
-    if(Math.hypot(f.x-p.x,f.y-p.y)<U*1.1){score+=10;S.coins++;earned++;sfx('eat');save();pop(f.x,f.y,'#ffd54a');foods.splice(i,1);upd()}
-    else if(f.y>H+U)foods.splice(i,1);
+    const f=foods[i];f.age+=dt;f.x+=f.vx*dt+Math.sin(t*2+f.ph)*U*.8*dt;f.y+=f.vy*dt+Math.cos(t*2+f.ph)*U*.5*dt;
+    if(Math.hypot(f.x-p.x,f.y-p.y)<U*1.1){if(f.heart){lives=Math.min(3,lives+1);sfx('buy');pop(f.x,f.y,'#ff6b8a')}else{score+=10;S.coins++;earned++;sfx('eat');save();pop(f.x,f.y,'#ffd54a')}foods.splice(i,1);upd()}
+    else if(f.age>1&&(f.x<-U*2||f.x>W+U*2||f.y<-U*2||f.y>H+U*2))foods.splice(i,1);
   }
   // собаки
   spawnD-=dt;
-  if(spawnD<=0){spawnDog();spawnD=Math.max(1.1,3.2-score/90)+Math.random()}
+  if(spawnD<=0){if(dogs.length<5+score/50)spawnDog();spawnD=Math.max(.9,2-score/120)+Math.random()*.7}
   for(let i=dogs.length-1;i>=0;i--){
-    const d=dogs[i];
-    d.x+=d.d*d.sp*dt;
-    const target=p.y+Math.sin(t*3+d.ph)*U;
-    d.y+=Math.sign(target-d.y)*Math.min(Math.abs(target-d.y),U*1.6*dt);
+    const d=dogs[i];d.age+=dt;
+    d.dt-=dt;if(d.dt<=0&&!d.leave){d.dash=.5;d.dt=3.5+Math.random()*2.5}
+    if(d.dash>0)d.dash-=dt;
+    if(d.age>d.chase)d.leave=true;
+    let ddx=p.x-d.x,ddy=p.y-d.y;if(d.leave){ddx=d.x-W/2;ddy=d.y-H/2}
+    const dd=Math.hypot(ddx,ddy)||1,spd=d.sp*(d.dash>0?1.5:1),tr=Math.min(1,(d.leave?1.5:1.3+score/400)*dt);
+    d.vx+=(ddx/dd*spd-d.vx)*tr;d.vy+=(ddy/dd*spd-d.vy)*tr;
+    d.x+=d.vx*dt;d.y+=d.vy*dt;d.d=d.vx>=0?1:-1;
     if(inv<=0&&Math.hypot(d.x-p.x,(d.y-p.y)*1.3)<d.sz+U*.7){
-      lives--;sfx('hit');inv=1.6;pop(p.x,p.y,'#ff6b6b');upd();
+      lives--;sfx('hit');inv=1.6;d.vx*=-1.5;d.vy*=-1.5;d.dt=3;d.dash=0;d.leave=true;pop(p.x,p.y,'#ff6b6b');upd();
       if(lives<=0){endGame();return}
     }
-    if(d.x<-U*5||d.x>W+U*5)dogs.splice(i,1);
+    if(d.leave&&(d.x<-U*4||d.x>W+U*4||d.y<-U*4||d.y>H+U*4))dogs.splice(i,1);
   }
   for(const b of bubbles){b.y-=b.s*dt;if(b.y<-10){b.y=H+10;b.x=Math.random()*W}}
   for(let i=parts.length-1;i>=0;i--){const q=parts[i];q.x+=q.vx*dt;q.y+=q.vy*dt;q.l-=dt;if(q.l<=0)parts.splice(i,1)}
@@ -233,8 +250,8 @@ function drawCat(x,y,s,d){
   ctx.moveTo(s*.9,s*.15);ctx.lineTo(s*1.4,s*.05);ctx.moveTo(s*.9,s*.2);ctx.lineTo(s*1.4,s*.25);ctx.stroke();cmap=null;
   ctx.restore();
 }
-function drawDog(x,y,s,d){
-  ctx.save();ctx.translate(x,y);ctx.scale(d,1);
+function drawDog(x,y,s,d,a){
+  ctx.save();ctx.translate(x,y);ctx.scale(d,1);ctx.rotate(a||0);
   const wag=Math.sin(t*12+x)*s*.15;
   tri(-s*.8,0,-s*1.5,-s*.5+wag,-s*1.5,s*.5+wag,'#6b6f8a');
   ellipse(0,0,s,s*.7,'#8d92b0');
@@ -256,8 +273,8 @@ function draw(){
   for(let i=0;i<4;i++){const y=H*(.15+i*.22)+Math.sin(t+i)*8;ctx.fillRect(0,y,W,U*.5)}
   ctx.fillStyle='rgba(255,255,255,.35)';
   for(const b of bubbles){ctx.beginPath();ctx.arc(b.x,b.y,b.r,0,7);ctx.fill()}
-  for(const f of foods){ellipse(f.x,f.y,U*.35,U*.35,'#ffd54a');ellipse(f.x-U*.1,f.y-U*.1,U*.12,U*.12,'#fff6c2')}
-  for(const d of dogs)drawDog(d.x,d.y,d.sz,d.d);
+  for(const f of foods){if(f.heart){const k=1+Math.sin(t*8)*.12;ctx.font=Math.round(U*1.1*k)+'px serif';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText('❤️',f.x,f.y);continue}ellipse(f.x,f.y,U*.35,U*.35,'#ffd54a');ellipse(f.x-U*.1,f.y-U*.1,U*.12,U*.12,'#fff6c2')}
+  for(const d of dogs)drawDog(d.x,d.y,d.sz*(d.dash>0?1.15:1),d.d,Math.atan2(d.vy,Math.abs(d.vx)));
   if(state!=='over'&&!(inv>0&&Math.floor(inv*10)%2))drawCat(p.x,p.y,U*.85,dir);
   for(const q of parts){ctx.globalAlpha=Math.max(q.l*2,0);ellipse(q.x,q.y,U*.15,U*.15,q.c)}
   ctx.globalAlpha=1;
